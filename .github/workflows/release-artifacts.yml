@@ -19,8 +19,6 @@ jobs:
   linux-plugin:
     name: Linux plugin (${{ matrix.target }})
     runs-on: ubuntu-24.04
-    container:
-      image: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
@@ -43,30 +41,10 @@ jobs:
             arch: x86_64
 
     steps:
-      - name: Install dependencies
-        run: |
-          if [ "${{ matrix.package_manager }}" = "apt" ]; then
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update
-            apt-get install -y \
-              build-essential cmake git pkg-config ca-certificates \
-              libssl-dev libcurl4-openssl-dev \
-              flex bison libyaml-dev \
-              binutils file
-          else
-            yum install -y \
-              gcc gcc-c++ make git pkgconfig ca-certificates \
-              openssl-devel libcurl-devel \
-              flex bison libyaml-devel \
-              binutils file
-          fi
-
-          cmake --version
-          git --version
-          openssl version
-
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Resolve Fluent Bit version
         env:
@@ -76,71 +54,24 @@ jobs:
           echo "FLUENT_BIT_VERSION=${version}" >> "$GITHUB_ENV"
           echo "Using Fluent Bit ${version}"
 
-      - name: Build Fluent Bit headers
+      - name: Build and package in target container
         env:
-          FLUENT_BIT_DIR: ${{ runner.temp }}/fluent-bit
+          TARGET: ${{ matrix.target }}
+          PACKAGE_MANAGER: ${{ matrix.package_manager }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          git clone --depth 1 --branch "$FLUENT_BIT_VERSION" \
-            https://github.com/fluent/fluent-bit.git "$FLUENT_BIT_DIR"
-
-          cmake -S "$FLUENT_BIT_DIR" -B "$FLUENT_BIT_DIR/build" \
-            -DFLB_RELEASE=On \
-            -DFLB_OUT_PROMETHEUS_EXPORTER=Off \
-            -DFLB_OUT_VIVO_EXPORTER=Off \
-            -DFLB_IN_ELASTICSEARCH=Off \
-            -DFLB_EXAMPLES=Off \
-            -DFLB_TESTS_RUNTIME=Off \
-            -DFLB_TESTS_INTERNAL=Off
-
-          cmake --build "$FLUENT_BIT_DIR/build" --parallel
-
-          test -f "$FLUENT_BIT_DIR/build/include/fluent-bit/flb_info.h"
-
-      - name: Build plugin
-        env:
-          FLUENT_BIT_DIR: ${{ runner.temp }}/fluent-bit
-        run: |
-          cmake -S . -B build-plugin \
-            -DALIYUN_SLS_BUILD_FLUENT_BIT_PLUGIN=ON \
-            -DFLUENT_BIT_SRC="$FLUENT_BIT_DIR" \
-            -DFLUENT_BIT_BUILD_DIR="$FLUENT_BIT_DIR/build"
-
-          cmake --build build-plugin --target flb-out_aliyun_sls --parallel
-          nm -D build-plugin/out_aliyun_sls.so | grep out_aliyun_sls_plugin
-
-      - name: Package artifact
-        run: |
-          artifact="aliyun-log-fluent-bit-plugin-${{ matrix.target }}"
-          package_dir="dist/${artifact}"
-
-          mkdir -p "$package_dir"
-          cp build-plugin/out_aliyun_sls.so "$package_dir/"
-          cp README.md README_EN.md "$package_dir/"
-          cp examples/fluent-bit.conf "$package_dir/"
-          cp docs/docker-build.md "$package_dir/"
-
-          {
-            echo "name=${artifact}"
-            echo "target=${{ matrix.target }}"
-            echo "container=${{ matrix.container }}"
-            echo "arch=${{ matrix.arch }}"
-            echo "fluent_bit_version=${FLUENT_BIT_VERSION}"
-            echo "commit=${GITHUB_SHA}"
-            echo
-            cmake --version | head -n 1
-            git --version
-            openssl version
-            ldd --version | head -n 1 || true
-          } > "$package_dir/manifest.txt"
-
-          ldd build-plugin/out_aliyun_sls.so > "$package_dir/ldd.txt" 2>&1 || true
-          readelf -d build-plugin/out_aliyun_sls.so > "$package_dir/readelf-dynamic.txt"
-          readelf --version-info build-plugin/out_aliyun_sls.so \
-            > "$package_dir/readelf-version-info.txt" 2>&1 || true
-
-          sha256sum "$package_dir/out_aliyun_sls.so" > "$package_dir/out_aliyun_sls.so.sha256"
-          tar -C dist -czf "dist/${artifact}.tar.gz" "$artifact"
-          sha256sum "dist/${artifact}.tar.gz" > "dist/${artifact}.sha256"
+          docker run --rm \
+            -e TARGET="$TARGET" \
+            -e PACKAGE_MANAGER="$PACKAGE_MANAGER" \
+            -e ARCH="$ARCH" \
+            -e FLUENT_BIT_VERSION="$FLUENT_BIT_VERSION" \
+            -e GITHUB_SHA="$GITHUB_SHA" \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "${{ matrix.container }}" \
+            bash .github/scripts/build-linux-artifact.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
