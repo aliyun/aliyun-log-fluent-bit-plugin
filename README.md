@@ -1,5 +1,7 @@
 # Aliyun SLS Fluent Bit 输出插件
 
+[English](README_EN.md) | 简体中文
+
 这是一个 Fluent Bit 输出插件，用来把 Fluent Bit 采集到的日志写入阿里云日志服务 SLS。
 
 如果你刚开始接触 Fluent Bit，可以先记住这条链路：
@@ -353,6 +355,17 @@ trace_id=abc
 | SLS 返回 `429` 或 `5xx` | 服务端限流或临时异常 | 交给 Fluent Bit 重试，也可调整 `retry_limit`。 |
 | 没有日志写入 | `match` 没匹配 input tag | 检查 `[INPUT]` 的 `tag` 和 `[OUTPUT]` 的 `match`。 |
 | 找不到 `flb_info.h` | Fluent Bit 没有先构建 | 先执行 `cmake --build "$FLUENT_BIT_DIR/build"`。 |
+
+## GitHub Actions 构建
+
+仓库内置了两个 workflow：
+
+| Workflow | 触发方式 | 作用 |
+| --- | --- | --- |
+| `CI` | PR、推送到 `master` | 在 `ubuntu-22.04` 和 `ubuntu-24.04` 上编译并运行单元测试。 |
+| `Build Release Artifacts` | 手动触发、推送 `v*` tag | 构建 Linux `out_aliyun_sls.so`，打包 README、示例配置和 sha256 校验文件，并上传为 Actions artifact。 |
+
+手动构建产物时，可以在 GitHub Actions 页面选择 `Build Release Artifacts`，填写 Fluent Bit tag，例如 `v3.2.10`。构建完成后，在 workflow run 的 Artifacts 区域下载产物。
 
 ## 安全建议
 

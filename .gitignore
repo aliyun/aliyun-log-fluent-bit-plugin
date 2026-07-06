@@ -1,4 +1,5 @@
 build/
+build-*/
 dist/*.tar.gz
 dist/*.sha256
 dist/*.json
