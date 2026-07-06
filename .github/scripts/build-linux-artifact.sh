@@ -46,6 +46,13 @@ openssl version
 cc --version | head -n 1
 c++ --version | head -n 1
 
+cmake_version="$(cmake --version | awk 'NR == 1 { print $3 }')"
+cmake_major="${cmake_version%%.*}"
+cmake_policy_args=()
+if [ "${cmake_major:-0}" -ge 4 ]; then
+    cmake_policy_args+=("-DCMAKE_POLICY_VERSION_MINIMUM=3.5")
+fi
+
 fluent_bit_dir="/tmp/fluent-bit"
 artifact="aliyun-log-fluent-bit-plugin-${target}"
 package_dir="dist/${artifact}"
@@ -58,6 +65,7 @@ git clone --depth 1 --branch "$fluent_bit_version" \
     https://github.com/fluent/fluent-bit.git "$fluent_bit_dir"
 
 cmake -S "$fluent_bit_dir" -B "$fluent_bit_dir/build" \
+    "${cmake_policy_args[@]}" \
     -DFLB_RELEASE=On \
     -DFLB_OUT_PROMETHEUS_EXPORTER=Off \
     -DFLB_OUT_VIVO_EXPORTER=Off \
