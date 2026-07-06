@@ -76,9 +76,9 @@ if(ALIYUN_SLS_BUILD_FLUENT_BIT_PLUGIN)
     endif()
 
     # Bundled dependencies shipped inside the Fluent Bit source tree.
-    # Note: fluent-bit's cmake generates some headers into both the source tree
-    # (via configure_file in-source) and the build tree. The build-tree include
-    # paths must cover the mk_core_info.h location at <build>/include/monkey/.
+    # Note: Fluent Bit generates headers into both the source tree and the build
+    # tree. Monkey headers may be generated below <build>/include or below
+    # <build>/lib/monkey/include depending on how Fluent Bit was configured.
     # Auto-detect c-ares version directory
     file(GLOB _cares_dir "${FLUENT_BIT_SRC}/lib/c-ares-*")
     file(GLOB _cares_build_dir "${_flb_build}/lib/c-ares-*")
@@ -88,6 +88,8 @@ if(ALIYUN_SLS_BUILD_FLUENT_BIT_PLUGIN)
         ${FLUENT_BIT_SRC}/include
         ${_flb_build}/include
         ${_flb_build}/include/monkey
+        ${_flb_build}/lib/monkey/include
+        ${_flb_build}/lib/monkey/include/monkey
         # Bundled libraries
         ${FLUENT_BIT_SRC}/lib/msgpack-c/include
         ${FLUENT_BIT_SRC}/lib/cmetrics/include
@@ -111,6 +113,17 @@ if(ALIYUN_SLS_BUILD_FLUENT_BIT_PLUGIN)
     if(_cares_build_dir)
         list(APPEND _flb_includes "${_cares_build_dir}")
     endif()
+    # Monkey generated headers such as mk_info.h, mk_env.h, and
+    # mk_core/mk_core_info.h can live under different build-tree roots.
+    foreach(_monkey_include
+            "${_flb_build}/include"
+            "${_flb_build}/include/monkey"
+            "${_flb_build}/lib/monkey/include"
+            "${_flb_build}/lib/monkey/include/monkey")
+        if(EXISTS "${_monkey_include}")
+            list(APPEND _flb_includes "${_monkey_include}")
+        endif()
+    endforeach()
     # Build-tree generated headers for sub-libraries
     foreach(_sublib cfl cmetrics ctraces cprofiles chunkio)
         if(EXISTS "${_flb_build}/lib/${_sublib}/include")
