@@ -1,0 +1,175 @@
+name: Build Release Artifacts
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      fluent_bit_version:
+        description: Fluent Bit git tag to build against
+        required: true
+        default: v3.2.10
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux-plugin:
+    name: Linux plugin (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: manylinux2014-x86_64
+            container: quay.io/pypa/manylinux2014_x86_64
+            package_manager: yum
+            arch: x86_64
+          - target: ubuntu20.04-x86_64
+            container: ubuntu:20.04
+            package_manager: apt
+            arch: x86_64
+          - target: ubuntu22.04-x86_64
+            container: ubuntu:22.04
+            package_manager: apt
+            arch: x86_64
+          - target: ubuntu24.04-x86_64
+            container: ubuntu:24.04
+            package_manager: apt
+            arch: x86_64
+
+    steps:
+      - name: Install dependencies
+        run: |
+          if [ "${{ matrix.package_manager }}" = "apt" ]; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y \
+              build-essential cmake git pkg-config ca-certificates \
+              libssl-dev libcurl4-openssl-dev \
+              flex bison libyaml-dev \
+              binutils file
+          else
+            yum install -y \
+              gcc gcc-c++ make git pkgconfig ca-certificates \
+              openssl-devel libcurl-devel \
+              flex bison libyaml-devel \
+              binutils file
+          fi
+
+          cmake --version
+          git --version
+          openssl version
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve Fluent Bit version
+        env:
+          REQUESTED_FLUENT_BIT_VERSION: ${{ github.event.inputs.fluent_bit_version }}
+        run: |
+          version="${REQUESTED_FLUENT_BIT_VERSION:-v3.2.10}"
+          echo "FLUENT_BIT_VERSION=${version}" >> "$GITHUB_ENV"
+          echo "Using Fluent Bit ${version}"
+
+      - name: Build Fluent Bit headers
+        env:
+          FLUENT_BIT_DIR: ${{ runner.temp }}/fluent-bit
+        run: |
+          git clone --depth 1 --branch "$FLUENT_BIT_VERSION" \
+            https://github.com/fluent/fluent-bit.git "$FLUENT_BIT_DIR"
+
+          cmake -S "$FLUENT_BIT_DIR" -B "$FLUENT_BIT_DIR/build" \
+            -DFLB_RELEASE=On \
+            -DFLB_OUT_PROMETHEUS_EXPORTER=Off \
+            -DFLB_OUT_VIVO_EXPORTER=Off \
+            -DFLB_IN_ELASTICSEARCH=Off \
+            -DFLB_EXAMPLES=Off \
+            -DFLB_TESTS_RUNTIME=Off \
+            -DFLB_TESTS_INTERNAL=Off
+
+          cmake --build "$FLUENT_BIT_DIR/build" --parallel
+
+          test -f "$FLUENT_BIT_DIR/build/include/fluent-bit/flb_info.h"
+
+      - name: Build plugin
+        env:
+          FLUENT_BIT_DIR: ${{ runner.temp }}/fluent-bit
+        run: |
+          cmake -S . -B build-plugin \
+            -DALIYUN_SLS_BUILD_FLUENT_BIT_PLUGIN=ON \
+            -DFLUENT_BIT_SRC="$FLUENT_BIT_DIR" \
+            -DFLUENT_BIT_BUILD_DIR="$FLUENT_BIT_DIR/build"
+
+          cmake --build build-plugin --target flb-out_aliyun_sls --parallel
+          nm -D build-plugin/out_aliyun_sls.so | grep out_aliyun_sls_plugin
+
+      - name: Package artifact
+        run: |
+          artifact="aliyun-log-fluent-bit-plugin-${{ matrix.target }}"
+          package_dir="dist/${artifact}"
+
+          mkdir -p "$package_dir"
+          cp build-plugin/out_aliyun_sls.so "$package_dir/"
+          cp README.md README_EN.md "$package_dir/"
+          cp examples/fluent-bit.conf "$package_dir/"
+          cp docs/docker-build.md "$package_dir/"
+
+          {
+            echo "name=${artifact}"
+            echo "target=${{ matrix.target }}"
+            echo "container=${{ matrix.container }}"
+            echo "arch=${{ matrix.arch }}"
+            echo "fluent_bit_version=${FLUENT_BIT_VERSION}"
+            echo "commit=${GITHUB_SHA}"
+            echo
+            cmake --version | head -n 1
+            git --version
+            openssl version
+            ldd --version | head -n 1 || true
+          } > "$package_dir/manifest.txt"
+
+          ldd build-plugin/out_aliyun_sls.so > "$package_dir/ldd.txt" 2>&1 || true
+          readelf -d build-plugin/out_aliyun_sls.so > "$package_dir/readelf-dynamic.txt"
+          readelf --version-info build-plugin/out_aliyun_sls.so \
+            > "$package_dir/readelf-version-info.txt" 2>&1 || true
+
+          sha256sum "$package_dir/out_aliyun_sls.so" > "$package_dir/out_aliyun_sls.so.sha256"
+          tar -C dist -czf "dist/${artifact}.tar.gz" "$artifact"
+          sha256sum "dist/${artifact}.tar.gz" > "dist/${artifact}.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: aliyun-log-fluent-bit-plugin-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          retention-days: 30
+
+  github-release:
+    name: Upload GitHub Release assets
+    runs-on: ubuntu-24.04
+    needs: linux-plugin
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG_NAME" >/dev/null 2>&1 || \
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --notes "Release $TAG_NAME"
+
+          gh release upload "$TAG_NAME" release-assets/*.tar.gz release-assets/*.sha256 --clobber

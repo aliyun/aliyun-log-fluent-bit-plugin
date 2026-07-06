@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test (${{ matrix.os }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: x86_64
+          - os: ubuntu-24.04
+            arch: x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake git pkg-config \
+            libssl-dev libcurl4-openssl-dev
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package build outputs
+        if: always()
+        run: |
+          package_name="aliyun-log-fluent-bit-plugin-${{ matrix.os }}-${{ matrix.arch }}"
+          artifact_dir="dist/${package_name}"
+          mkdir -p "$artifact_dir/test-logs"
+
+          for file in \
+            build/libaliyun_sls_client.a \
+            build/putlogs_smoke \
+            build/test_batch \
+            build/test_client \
+            build/test_crypto \
+            build/test_protobuf; do
+            if [ -f "$file" ]; then
+              cp "$file" "$artifact_dir/"
+            fi
+          done
+
+          if [ -d build/Testing/Temporary ]; then
+            cp build/Testing/Temporary/*.log "$artifact_dir/test-logs/" 2>/dev/null || true
+          fi
+
+          tar -C dist -czf "dist/${package_name}.tar.gz" "${package_name}"
+          sha256sum "dist/${package_name}.tar.gz" > "dist/${package_name}.sha256"
+
+      - name: Upload build artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: aliyun-log-fluent-bit-plugin-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          retention-days: 14
