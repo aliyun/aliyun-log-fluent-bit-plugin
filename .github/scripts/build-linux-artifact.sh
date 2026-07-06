@@ -34,7 +34,9 @@ else
         # manylinux2014 provides a newer GCC through devtoolset while keeping
         # the CentOS 7 / glibc 2.17 runtime baseline.
         # shellcheck disable=SC1091
+        set +u
         source /opt/rh/devtoolset-10/enable
+        set -u
     fi
 fi
 
