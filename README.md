@@ -1,5 +1,7 @@
 # Aliyun SLS Fluent Bit 输出插件
 
+[English](README_EN.md) | 简体中文
+
 这是一个 Fluent Bit 输出插件，用来把 Fluent Bit 采集到的日志写入阿里云日志服务 SLS。
 
 如果你刚开始接触 Fluent Bit，可以先记住这条链路：
@@ -353,6 +355,26 @@ trace_id=abc
 | SLS 返回 `429` 或 `5xx` | 服务端限流或临时异常 | 交给 Fluent Bit 重试，也可调整 `retry_limit`。 |
 | 没有日志写入 | `match` 没匹配 input tag | 检查 `[INPUT]` 的 `tag` 和 `[OUTPUT]` 的 `match`。 |
 | 找不到 `flb_info.h` | Fluent Bit 没有先构建 | 先执行 `cmake --build "$FLUENT_BIT_DIR/build"`。 |
+
+## GitHub Releases 产物
+
+正式发布时，GitHub Releases 会提供多种 Linux 环境构建的二进制包，方便用户按运行环境选择：
+
+| 产物 | 适用场景 |
+| --- | --- |
+| `manylinux2014-x86_64` | glibc 2.17 基线，优先用于追求更广 Linux 兼容性的环境。 |
+| `ubuntu20.04-x86_64` | Ubuntu 20.04 或 OpenSSL 1.1 运行环境。 |
+| `ubuntu22.04-x86_64` | Ubuntu 22.04 或 OpenSSL 3 运行环境。 |
+| `ubuntu24.04-x86_64` | Ubuntu 24.04 或更新运行环境。 |
+
+每个发布包都包含 `out_aliyun_sls.so`、示例配置、README、sha256 校验文件以及 `ldd`/`readelf` 依赖信息。产物文件命名为 `aliyun-log-fluent-bit-plugin-<target>-<arch>.tar.gz` 和 `aliyun-log-fluent-bit-plugin-<target>-<arch>.sha256`，例如：
+
+```text
+aliyun-log-fluent-bit-plugin-manylinux2014-x86_64.tar.gz
+aliyun-log-fluent-bit-plugin-ubuntu20.04-x86_64.tar.gz
+aliyun-log-fluent-bit-plugin-ubuntu22.04-x86_64.tar.gz
+aliyun-log-fluent-bit-plugin-ubuntu24.04-x86_64.tar.gz
+```
 
 ## 安全建议
 
